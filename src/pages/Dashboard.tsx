@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import QRCode from "qrcode";
 import {
   BarChart3, Inbox, Palette, Plus, Link as LinkIcon,
-  User, X, ArrowRight, Quote, Menu,
+  X, ArrowRight, Quote, Menu,
   Copy, Check, MessageCircle, Clock, ChevronLeft, Zap,
-  Share2, MessageSquare, MoreVertical, Edit2, Trash2, Star,
-  Settings, Camera
+  Share2, MoreVertical, Edit2, Trash2, Star,
+  Settings, Camera, QrCode
 } from "lucide-react";
 import type { PrawlyLink, PrawlyUser } from "../App";
 
@@ -52,6 +53,48 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [shareMenuOpenId, setShareMenuOpenId] = useState<string | null>(null);
+  const [qrLinkId, setQrLinkId] = useState<string | null>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close 3-dot menus when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShareMenuOpenId(null);
+      }
+    };
+    if (shareMenuOpenId) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [shareMenuOpenId]);
+
+  // Generate QR on canvas with golden "P" overlay
+  useEffect(() => {
+    if (!qrLinkId || !qrCanvasRef.current) return;
+    const url = getLinkUrl(qrLinkId);
+    const canvas = qrCanvasRef.current;
+    QRCode.toCanvas(canvas, url, {
+      width: 280,
+      margin: 2,
+      color: { dark: "#1a1a1a", light: "#ffffff" },
+    }, () => {
+      // Draw golden "P" watermark in center
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const r = 28;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.font = `bold ${r * 1.4}px 'Georgia', serif`;
+      ctx.fillStyle = "#FFBF00";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("P", cx, cy + 1);
+    });
+  }, [qrLinkId]);
 
   const navItems = [
     { id: "analytics", label: "Analytics", icon: BarChart3 },
@@ -142,12 +185,10 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
     if (editingLink) {
       onEditLink(editingLink.id, linkName.trim(), linkQuestion.trim());
     } else {
-      const newLink = onCreateLink(linkName.trim(), linkQuestion.trim());
+      onCreateLink(linkName.trim(), linkQuestion.trim());
       setShowCreationSuccess(true);
       setTimeout(() => setShowCreationSuccess(false), 3000);
-      setTimeout(() => {
-        handleShare(newLink);
-      }, 500);
+      // No auto-share — user clicks Share when ready
     }
 
     setLinkName("");
@@ -354,10 +395,13 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-surface/80 backdrop-blur-xl border-b-2 border-zinc-900 flex justify-between items-center px-6 py-4">
         <div className="text-xl font-black italic text-primary-container uppercase tracking-widest font-display">Prawly</div>
-        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-on-surface-variant">
+        <button onClick={() => setIsMenuOpen(v => !v)} className="text-on-surface-variant">
           {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
+
+      {/* Mobile Menu outside-click overlay */}
+      {isMenuOpen && <div className="fixed inset-0 z-20 md:hidden" onClick={() => setIsMenuOpen(false)} />}
 
       {/* Mobile Menu Overlay */}
       <AnimatePresence>
@@ -497,15 +541,26 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                               <LinkIcon size={18} className="text-primary-container" />
                            </div>
                            
-                           <div className="flex items-center gap-1 relative">
+                           <div className="flex items-center gap-1 relative" ref={shareMenuOpenId === link.id ? menuRef : null}>
                              <button
                                onClick={(e) => {
                                  e.stopPropagation();
                                  handleCopy(link);
                                }}
+                               title="Copy link"
                                className="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
                              >
                                {copiedId === link.id ? <Check size={18} className="text-green-400" /> : <Copy size={18} />}
+                             </button>
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setQrLinkId(link.id);
+                               }}
+                               title="Show QR code"
+                               className="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant hover:text-primary-container transition-colors"
+                             >
+                               <QrCode size={18} />
                              </button>
                              <button
                                onClick={(e) => {
@@ -634,6 +689,63 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
           )}
         </div>
       </main>
+
+      {/* QR Code Popup */}
+      <AnimatePresence>
+        {qrLinkId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => setQrLinkId(null)}
+          >
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="relative z-10 flex flex-col items-center gap-6 bg-surface-container-lowest border-2 border-outline-variant rounded-3xl p-8 shadow-[0_0_60px_rgba(255,191,0,0.15)]"
+            >
+              <div className="flex flex-col items-center gap-1">
+                <p className="font-display text-[10px] font-bold tracking-[0.2em] text-on-surface-variant uppercase">Scan to Open</p>
+                <h3 className="font-display text-lg font-black text-on-surface">
+                  {links.find(l => l.id === qrLinkId)?.name || "Prawly Link"}
+                </h3>
+              </div>
+              <div className="p-3 bg-white rounded-2xl shadow-[0_0_40px_rgba(255,191,0,0.2)]">
+                <canvas ref={qrCanvasRef} />
+              </div>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => {
+                    const link = links.find(l => l.id === qrLinkId);
+                    if (link) handleCopy(link);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-surface-container-high border border-outline-variant hover:border-primary-container/50 text-on-surface-variant hover:text-primary-container transition-all font-display text-xs font-bold tracking-widest"
+                >
+                  <Copy size={14} />
+                  {copiedId === qrLinkId ? "Copied!" : "Copy Link"}
+                </button>
+                <button
+                  onClick={() => {
+                    const link = links.find(l => l.id === qrLinkId);
+                    if (link) handleShare(link);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-container text-surface font-display text-xs font-bold tracking-widest hover:scale-105 transition-transform shadow-[0_0_20px_rgba(255,191,0,0.2)]"
+                >
+                  <Share2 size={14} />
+                  Share
+                </button>
+              </div>
+              <button onClick={() => setQrLinkId(null)} className="absolute top-4 right-4 p-2 rounded-xl hover:bg-surface-container-high text-on-surface-variant/50 hover:text-on-surface transition-all">
+                <X size={18} />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create / Edit Link Modal */}
       <AnimatePresence>
