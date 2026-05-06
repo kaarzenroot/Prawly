@@ -102,6 +102,34 @@ export default function App() {
           email: firebaseUser.email || "",
           photoURL: userData?.photoURL || firebaseUser.photoURL || localPhoto || null,
         });
+
+        // Fetch user's links from Firestore
+        try {
+          const q = query(collection(db, "links"), where("creatorId", "==", firebaseUser.uid));
+          const querySnapshot = await getDocs(q);
+          const fetchedLinks: PrawlyLink[] = [];
+          
+          for (const linkDoc of querySnapshot.docs) {
+            const data = linkDoc.data();
+            const msgQ = query(collection(db, "links", linkDoc.id, "messages"));
+            const msgSnapshot = await getDocs(msgQ);
+            const messages = msgSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as PrawlyMessage));
+            
+            fetchedLinks.push({
+              id: linkDoc.id,
+              name: data.name,
+              question: data.question,
+              createdAt: data.createdAt,
+              creatorUsername: data.creatorUsername,
+              creatorPhoto: data.creatorPhoto,
+              messages: messages.sort((a, b) => b.timestamp - a.timestamp)
+            });
+          }
+          setLinks(fetchedLinks);
+        } catch (e) {
+          console.error("Error fetching links from Firestore", e);
+        }
+
         setCurrentPage(prev => {
           if (prev === "home" || prev === "auth" || prev === "signup") {
             return "dashboard";
@@ -110,6 +138,7 @@ export default function App() {
         });
       } else {
         setUser(null);
+        setLinks([]);
       }
       setAuthInitialized(true);
     });
@@ -235,8 +264,9 @@ export default function App() {
 
   // ── Link handlers ──
   const handleCreateLink = useCallback((name: string, question: string): PrawlyLink => {
+    const linkId = generateCustomLinkId(user?.username || "user", name);
     const newLink: PrawlyLink = {
-      id: generateCustomLinkId(user?.username || "user", name),
+      id: linkId,
       name,
       question,
       createdAt: Date.now(),
@@ -245,13 +275,27 @@ export default function App() {
       creatorPhoto: user?.photoURL || null,
     };
     setLinks(prev => [newLink, ...prev]);
+
+    // Save to Firestore
+    if (auth.currentUser) {
+      setDoc(doc(db, "links", linkId), {
+        name,
+        question,
+        createdAt: newLink.createdAt,
+        creatorId: auth.currentUser.uid,
+        creatorUsername: newLink.creatorUsername,
+        creatorPhoto: newLink.creatorPhoto
+      }).catch(e => console.error("Error saving link to Firestore", e));
+    }
+
     return newLink;
   }, [user]);
 
   const handleSubmitMessage = useCallback(async (linkId: string, text: string) => {
     const { aiSummary, sentiment } = await aiInterpret(text);
+    const messageId = generateId();
     const newMessage: PrawlyMessage = {
-      id: generateId(),
+      id: messageId,
       text,
       timestamp: Date.now(),
       aiSummary,
@@ -262,15 +306,28 @@ export default function App() {
         ? { ...link, messages: [...link.messages, newMessage] }
         : link
     ));
+
+    // Save to Firestore
+    setDoc(doc(db, "links", linkId, "messages", messageId), {
+      text,
+      timestamp: newMessage.timestamp,
+      aiSummary,
+      sentiment,
+      starred: false
+    }).catch(e => console.error("Error saving message to Firestore", e));
   }, []);
 
   const handleEditLink = useCallback((linkId: string, name: string, question: string) => {
     setLinks(prev => prev.map(l => l.id === linkId ? { ...l, name, question } : l));
+    updateDoc(doc(db, "links", linkId), { name, question })
+      .catch(e => console.error("Error updating link in Firestore", e));
   }, []);
 
   const handleDeleteLink = useCallback((linkId: string) => {
     setLinks(prev => prev.filter(l => l.id !== linkId));
-    // Also redirect to dashboard if deleting currently active link
+    deleteDoc(doc(db, "links", linkId))
+      .catch(e => console.error("Error deleting link from Firestore", e));
+
     if (window.location.hash.includes(linkId)) {
       history.replaceState(null, "", window.location.pathname);
       setPublicLinkId(null);
@@ -284,14 +341,25 @@ export default function App() {
         ? { ...l, messages: l.messages.filter(m => m.id !== messageId) }
         : l
     ));
+    deleteDoc(doc(db, "links", linkId, "messages", messageId))
+      .catch(e => console.error("Error deleting message from Firestore", e));
   }, []);
 
   const handleToggleStarMessage = useCallback((linkId: string, messageId: string) => {
+    let newState = false;
     setLinks(prev => prev.map(l =>
       l.id === linkId
-        ? { ...l, messages: l.messages.map(m => m.id === messageId ? { ...m, starred: !m.starred } : m) }
+        ? { ...l, messages: l.messages.map(m => {
+            if (m.id === messageId) {
+              newState = !m.starred;
+              return { ...m, starred: newState };
+            }
+            return m;
+          })}
         : l
     ));
+    updateDoc(doc(db, "links", linkId, "messages", messageId), { starred: newState })
+      .catch(e => console.error("Error toggling star in Firestore", e));
   }, []);
 
   const navigate = useCallback((page: string) => {

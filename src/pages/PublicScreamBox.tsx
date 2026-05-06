@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Lock, Send, Zap, ShieldCheck, AlertCircle } from "lucide-react";
 import type { PrawlyLink } from "../App";
+import { db } from "../lib/firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 interface PublicScreamBoxProps {
   onNavigate: (page: string) => void;
@@ -10,35 +12,67 @@ interface PublicScreamBoxProps {
   onSubmitMessage: (linkId: string, text: string) => Promise<void>;
 }
 
+// Simple ID generator (duplicated here so PublicScreamBox is self-contained)
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}
+
 export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: PublicScreamBoxProps) {
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [text, setText] = useState("");
   const [link, setLink] = useState<PrawlyLink | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [spamError, setSpamError] = useState<string | null>(null);
   const [wordError, setWordError] = useState<string | null>(null);
   const [progressText, setProgressText] = useState("Interpreting...");
 
+  // Fetch link directly from Firestore by document ID so it works on ANY device
   useEffect(() => {
     if (!linkId) {
       setNotFound(true);
+      setLoading(false);
       return;
     }
-    // Only set notFound to true if we actually have links loaded to check against.
-    // Otherwise wait for links to load.
-    if (links.length === 0) {
-      // If links are empty, we might still be loading them from localStorage.
-      return; 
-    }
-    
-    const found = links.find(l => l.id === linkId);
-    if (found) {
-      setLink(found);
+
+    // First check if we already have it in local state (same-browser fast path)
+    const localLink = links.find(l => l.id === linkId);
+    if (localLink) {
+      setLink(localLink);
       setNotFound(false);
-    } else {
-      setNotFound(true);
+      setLoading(false);
+      return;
     }
+
+    // Fetch from Firestore — this is the cross-device path
+    async function fetchFromFirestore() {
+      try {
+        const linkDoc = await getDoc(doc(db, "links", linkId!));
+        if (linkDoc.exists()) {
+          const data = linkDoc.data();
+          setLink({
+            id: linkDoc.id,
+            name: data.name,
+            question: data.question,
+            createdAt: data.createdAt,
+            messages: [],
+            creatorUsername: data.creatorUsername,
+            creatorPhoto: data.creatorPhoto,
+          });
+          setNotFound(false);
+        } else {
+          setNotFound(true);
+        }
+      } catch (e) {
+        console.error("Error fetching link from Firestore:", e);
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchFromFirestore();
   }, [linkId, links]);
 
   const handleSubmit = async () => {
@@ -71,7 +105,40 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
       setProgressText(messages[step % messages.length]);
     }, 800);
 
-    await onSubmitMessage(link.id, text.trim());
+    try {
+      // Call AI endpoint
+      let aiSummary = text.trim();
+      let sentiment = "neutral";
+      try {
+        const aiRes = await fetch("/api/prawlly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text.trim() }),
+        });
+        if (aiRes.ok) {
+          const aiData = await aiRes.json();
+          aiSummary = aiData.aiSummary ?? text.trim();
+          sentiment = aiData.sentiment ?? "neutral";
+        }
+      } catch (aiErr) {
+        console.error("AI processing failed, saving raw text:", aiErr);
+      }
+
+      // Write message directly to Firestore
+      const messageId = generateId();
+      await setDoc(doc(db, "links", link.id, "messages", messageId), {
+        text: text.trim(),
+        timestamp: Date.now(),
+        aiSummary,
+        sentiment,
+        starred: false,
+      });
+
+      // Also call parent handler if available (for same-browser local state update)
+      try { await onSubmitMessage(link.id, text.trim()); } catch {}
+    } catch (err) {
+      console.error("Error submitting message:", err);
+    }
     
     clearInterval(interval);
     setIsSubmitting(false);
@@ -141,8 +208,8 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
     );
   }
 
-  // Loading state (link data not yet resolved)
-  if (!link) {
+  // Loading state (link data not yet resolved from Firestore)
+  if (loading || !link) {
     return (
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center p-8">
         <div className="w-10 h-10 border-2 border-outline-variant border-t-primary-container rounded-full animate-spin" />
