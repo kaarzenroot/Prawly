@@ -384,7 +384,7 @@ export default function App() {
           })}
         : l
     ));
-    updateDoc(doc(db, "links", linkId, "messages", messageId), { starred: newState })
+    setDoc(doc(db, "links", linkId, "messages", messageId), { starred: newState }, { merge: true })
       .catch(e => console.error("Error toggling star in Firestore", e));
   }, []);
 
