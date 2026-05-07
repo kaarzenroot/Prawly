@@ -7,7 +7,7 @@ import { PublicScreamBox } from "./pages/PublicScreamBox";
 import { AnimatePresence, motion } from "motion/react";
 import { firebaseSignUp, firebaseSignIn, firebaseSignOut, onAuthStateChanged, auth, db } from "./lib/firebase";
 import { updateProfile } from "firebase/auth";
-import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove } from "firebase/firestore";
 
 type Page = "home" | "auth" | "signup" | "dashboard" | "public-scream-box";
 
@@ -89,6 +89,7 @@ async function aiInterpret(rawText: string): Promise<{ aiSummary: string; sentim
 export default function App() {
   const [user, setUser] = useState<PrawlyUser | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [starredIds, setStarredIds] = useState<Set<string>>(getLocalStarred);
   const [currentPage, setCurrentPage] = useState<Page>(() => {
     if (window.location.hash.startsWith("#/scream/")) return "public-scream-box";
     return "home";
@@ -113,6 +114,18 @@ export default function App() {
           email: firebaseUser.email || "",
           photoURL: userData?.photoURL || firebaseUser.photoURL || localPhoto || null,
         });
+
+        // Load starred message IDs from user profile (cross-device)
+        const firestoreStarred: string[] = userData?.starredMessageIds || [];
+        const merged = new Set<string>([...getLocalStarred(), ...firestoreStarred]);
+        setStarredIds(merged);
+        saveLocalStarred(merged);
+        // If Firestore is missing local stars, sync them up
+        if (merged.size > firestoreStarred.length) {
+          setDoc(doc(db, "users", firebaseUser.uid), {
+            starredMessageIds: [...merged]
+          }, { merge: true }).catch(() => {});
+        }
 
         // Fetch user's links from Firestore
         try {
@@ -223,14 +236,14 @@ export default function App() {
       onSnapshot(
         collection(db, "links", linkId, "messages"),
         (snapshot) => {
-          const localStarred = getLocalStarred();
+          const localStarred = starredIds;
           const messages = snapshot.docs.map(d => {
             const data = d.data();
             return {
               id: d.id,
               ...data,
-              // Merge: Firestore starred OR localStorage starred (fallback)
-              starred: data.starred === true || localStarred.has(d.id),
+              // Merge: user's starredIds (cross-device) OR localStorage fallback
+              starred: localStarred.has(d.id),
             } as PrawlyMessage;
           });
           setLinks(prev => prev.map(l =>
@@ -244,7 +257,7 @@ export default function App() {
     );
 
     return () => unsubs.forEach(u => u());
-  }, [user, linkIdsKey]);
+  }, [user, linkIdsKey, starredIds]);
 
   // Reset scroll on page change
   useEffect(() => {
@@ -405,15 +418,21 @@ export default function App() {
         : l
     ));
 
-    // Persist to localStorage (guaranteed to work regardless of Firestore rules)
-    const starred = getLocalStarred();
-    if (newState) starred.add(messageId);
-    else starred.delete(messageId);
-    saveLocalStarred(starred);
+    // Update cross-device starredIds state
+    setStarredIds(prev => {
+      const next = new Set(prev);
+      if (newState) next.add(messageId);
+      else next.delete(messageId);
+      saveLocalStarred(next);
+      return next;
+    });
 
-    // Also try Firestore (works if rules allow it)
-    setDoc(doc(db, "links", linkId, "messages", messageId), { starred: newState }, { merge: true })
-      .catch(e => console.error("Error toggling star in Firestore", e));
+    // Persist to user's Firestore profile (syncs across all devices)
+    if (auth.currentUser) {
+      updateDoc(doc(db, "users", auth.currentUser.uid), {
+        starredMessageIds: newState ? arrayUnion(messageId) : arrayRemove(messageId)
+      }).catch(e => console.error("Error updating starred in Firestore", e));
+    }
   }, []);
 
   const navigate = useCallback((page: string) => {
