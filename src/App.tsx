@@ -49,6 +49,17 @@ function generateCustomLinkId(username: string, title: string): string {
   return `${cleanUser}-${cleanTitle}-${hash}`;
 }
 
+// ── LocalStorage-backed star persistence (Firestore fallback) ──
+function getLocalStarred(): Set<string> {
+  try {
+    const saved = localStorage.getItem('prawly_starred_messages');
+    return new Set(saved ? JSON.parse(saved) : []);
+  } catch { return new Set(); }
+}
+function saveLocalStarred(ids: Set<string>) {
+  localStorage.setItem('prawly_starred_messages', JSON.stringify([...ids]));
+}
+
 // ── AI Interpretation — calls our server-side /api/prawlly endpoint ──
 // The Gemini API key is NEVER present in the frontend bundle.
 async function aiInterpret(rawText: string): Promise<{ aiSummary: string; sentiment: string }> {
@@ -212,7 +223,16 @@ export default function App() {
       onSnapshot(
         collection(db, "links", linkId, "messages"),
         (snapshot) => {
-          const messages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PrawlyMessage));
+          const localStarred = getLocalStarred();
+          const messages = snapshot.docs.map(d => {
+            const data = d.data();
+            return {
+              id: d.id,
+              ...data,
+              // Merge: Firestore starred OR localStorage starred (fallback)
+              starred: data.starred === true || localStarred.has(d.id),
+            } as PrawlyMessage;
+          });
           setLinks(prev => prev.map(l =>
             l.id === linkId
               ? { ...l, messages: messages.sort((a, b) => a.timestamp - b.timestamp) }
@@ -384,6 +404,14 @@ export default function App() {
           })}
         : l
     ));
+
+    // Persist to localStorage (guaranteed to work regardless of Firestore rules)
+    const starred = getLocalStarred();
+    if (newState) starred.add(messageId);
+    else starred.delete(messageId);
+    saveLocalStarred(starred);
+
+    // Also try Firestore (works if rules allow it)
     setDoc(doc(db, "links", linkId, "messages", messageId), { starred: newState }, { merge: true })
       .catch(e => console.error("Error toggling star in Firestore", e));
   }, []);
