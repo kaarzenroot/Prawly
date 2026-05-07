@@ -124,7 +124,7 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
         console.error("AI processing failed, saving raw text:", aiErr);
       }
 
-      // Write message directly to Firestore
+      // Write message directly to Firestore — single source of truth
       const messageId = generateId();
       await setDoc(doc(db, "links", link.id, "messages", messageId), {
         text: text.trim(),
@@ -133,9 +133,6 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
         sentiment,
         starred: false,
       });
-
-      // Also call parent handler if available (for same-browser local state update)
-      try { await onSubmitMessage(link.id, text.trim()); } catch {}
     } catch (err) {
       console.error("Error submitting message:", err);
     }
