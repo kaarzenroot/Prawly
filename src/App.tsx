@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Home } from "./pages/Home";
 import { Auth } from "./pages/Auth";
 import { SignUp } from "./pages/SignUp";
@@ -7,7 +7,7 @@ import { PublicScreamBox } from "./pages/PublicScreamBox";
 import { AnimatePresence, motion } from "motion/react";
 import { firebaseSignUp, firebaseSignIn, firebaseSignOut, onAuthStateChanged, auth, db } from "./lib/firebase";
 import { updateProfile } from "firebase/auth";
-import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, arrayUnion, arrayRemove, writeBatch } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 
 type Page = "home" | "auth" | "signup" | "dashboard" | "public-scream-box";
 
@@ -199,6 +199,32 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("prawly_links", JSON.stringify(links));
   }, [links]);
+
+  // ── Real-time Firestore listeners for messages ──
+  const linkIdsKey = useMemo(() => links.map(l => l.id).sort().join(','), [links]);
+
+  useEffect(() => {
+    if (!user) return;
+    const ids = linkIdsKey.split(',').filter(Boolean);
+    if (ids.length === 0) return;
+
+    const unsubs = ids.map(linkId =>
+      onSnapshot(
+        collection(db, "links", linkId, "messages"),
+        (snapshot) => {
+          const messages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PrawlyMessage));
+          setLinks(prev => prev.map(l =>
+            l.id === linkId
+              ? { ...l, messages: messages.sort((a, b) => a.timestamp - b.timestamp) }
+              : l
+          ));
+        },
+        (err) => console.error(`Messages listener error for ${linkId}:`, err)
+      )
+    );
+
+    return () => unsubs.forEach(u => u());
+  }, [user, linkIdsKey]);
 
   // Reset scroll on page change
   useEffect(() => {

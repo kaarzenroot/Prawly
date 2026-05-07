@@ -96,6 +96,15 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
     });
   }, [qrLinkId]);
 
+  // Push browser history when entering message detail view
+  useEffect(() => {
+    if (!selectedLink) return;
+    window.history.pushState({ dashboardView: 'messages' }, '');
+    const handlePop = () => setSelectedLink(null);
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, [selectedLink?.id]);
+
   const navItems = [
     { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "inbox", label: "Inbox", icon: Inbox },
@@ -215,7 +224,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
           <header className="bg-surface/50 backdrop-blur-xl border-b-2 border-zinc-900 flex justify-between items-center px-8 py-4 sticky top-0 z-30">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => setSelectedLink(null)}
+                onClick={() => window.history.back()}
                 className="flex items-center gap-2 text-on-surface-variant hover:text-tertiary transition-colors font-display font-bold text-sm"
               >
                 <ChevronLeft size={20} />
@@ -534,7 +543,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
                         className="flex flex-col p-6 rounded-3xl bg-surface-container-low border border-outline-variant/50 hover:border-primary-container/30 transition-all group relative cursor-pointer"
-                        onClick={() => setSelectedLink(link)}
+                        onClick={() => { setSelectedLink(link); }}
                       >
                          <div className="flex items-start justify-between gap-4 mb-4">
                            <div className="w-10 h-10 rounded-xl bg-primary-container/10 border border-primary-container/20 flex items-center justify-center flex-shrink-0 group-hover:bg-primary-container/20 transition-colors">
