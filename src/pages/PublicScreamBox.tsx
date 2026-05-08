@@ -28,7 +28,7 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
   const [wordError, setWordError] = useState<string | null>(null);
   const [progressText, setProgressText] = useState("Interpreting...");
 
-  // Fetch link directly from Firestore by document ID so it works on ANY device
+  // First: fast path — check localStorage-backed links prop
   useEffect(() => {
     if (!linkId) {
       setNotFound(true);
@@ -36,16 +36,21 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
       return;
     }
 
-    // First check if we already have it in local state (same-browser fast path)
-    const localLink = links.find(l => l.id === linkId);
-    if (localLink) {
-      setLink(localLink);
+    const found = links.find(l => l.id === linkId);
+    if (found) {
+      setLink(found);
       setNotFound(false);
       setLoading(false);
-      return;
     }
+    // If not found locally, the Firestore effect below will handle it
+  }, [linkId, links]);
 
-    // Fetch from Firestore — this is the cross-device path
+  // Second: Firestore fallback — runs once when linkId is set and local search missed
+  useEffect(() => {
+    if (!linkId) return;
+    // If already resolved (found locally or already notFound), skip
+    if (link || notFound) return;
+
     async function fetchFromFirestore() {
       try {
         const linkDoc = await getDoc(doc(db, "links", linkId!));
@@ -73,7 +78,7 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
     }
 
     fetchFromFirestore();
-  }, [linkId, links]);
+  }, [linkId]); // intentionally omit link/notFound — only run once per linkId
 
   const handleSubmit = async () => {
     if (!text.trim() || !link || isSubmitting) return;

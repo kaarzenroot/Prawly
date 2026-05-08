@@ -45,7 +45,6 @@ export function SignUp({ onNavigate, onSignUp }: SignUpProps) {
     }
 
     setLoading(true);
-    await new Promise(r => setTimeout(r, 600));
 
     const result = await onSignUp(username.trim(), email.trim(), password);
     if (result) {

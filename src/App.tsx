@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Home } from "./pages/Home";
-import { Auth } from "./pages/Auth";
-import { SignUp } from "./pages/SignUp";
-import { Dashboard } from "./pages/Dashboard";
-import { PublicScreamBox } from "./pages/PublicScreamBox";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { firebaseSignUp, firebaseSignIn, firebaseSignOut, onAuthStateChanged, auth, db } from "./lib/firebase";
 import { updateProfile } from "firebase/auth";
-import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, arrayUnion, arrayRemove, writeBatch } from "firebase/firestore";
+
+const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
+const Auth = lazy(() => import("./pages/Auth").then(m => ({ default: m.Auth })));
+const SignUp = lazy(() => import("./pages/SignUp").then(m => ({ default: m.SignUp })));
+const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
+const PublicScreamBox = lazy(() => import("./pages/PublicScreamBox").then(m => ({ default: m.PublicScreamBox })));
 
 type Page = "home" | "auth" | "signup" | "dashboard" | "public-scream-box";
 
@@ -487,27 +488,31 @@ export default function App() {
     }
   };
 
+  const pageFallback = (
+    <div className="min-h-screen flex items-center justify-center bg-surface">
+      <div className="w-8 h-8 border-[3px] border-surface-container-high border-t-primary-container rounded-full animate-spin" />
+    </div>
+  );
+
   if (!authInitialized && currentPage !== "public-scream-box") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
-        <div className="w-8 h-8 border-[3px] border-surface-container-high border-t-primary-container rounded-full animate-spin"></div>
-      </div>
-    );
+    return pageFallback;
   }
 
   return (
     <div className="min-h-screen">
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentPage + (publicLinkId || "")}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.35, ease: "easeInOut" }}
-        >
-          {renderPage()}
-        </motion.div>
-      </AnimatePresence>
+      <Suspense fallback={pageFallback}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentPage + (publicLinkId || "")}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+          >
+            {renderPage()}
+          </motion.div>
+        </AnimatePresence>
+      </Suspense>
     </div>
   );
 }
