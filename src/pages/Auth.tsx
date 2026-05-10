@@ -28,6 +28,8 @@ export function Auth({ onNavigate, onSignIn }: AuthProps) {
     }
 
     setLoading(true);
+    // Brief delay for UX
+    await new Promise(r => setTimeout(r, 500));
 
     const result = await onSignIn(email.trim(), password);
     if (result) {
