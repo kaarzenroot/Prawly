@@ -120,7 +120,7 @@ export function SignUp({ onNavigate, onSignUp }: SignUpProps) {
             <ArrowLeft size={16} />
             Home
           </button>
-          <div className="font-display text-xl font-black italic tracking-widest text-primary-container">PRAWLY</div>
+          <div className="font-wordmark text-2xl tracking-wider text-primary-container">Prawly</div>
         </div>
 
         <motion.div 

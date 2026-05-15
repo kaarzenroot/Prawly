@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCode from "qrcode";
 import {
@@ -231,7 +231,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                 Back
               </button>
               <div className="w-px h-6 bg-zinc-800" />
-              <div className="text-2xl font-black italic text-primary-container uppercase tracking-widest font-display">Prawly</div>
+              <div className="text-2xl text-primary-container tracking-wider font-wordmark">Prawly</div>
             </div>
             <div className="flex gap-2">
                <button
@@ -358,7 +358,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
       {/* Sidebar - Desktop */}
       <aside className="hidden md:flex w-72 bg-surface-container-lowest border-r-2 border-zinc-900 flex-col sticky top-0 h-screen">
         <div className="p-8">
-          <div className="text-2xl font-black italic text-primary-container uppercase tracking-widest font-display">Prawly</div>
+          <div className="text-2xl text-primary-container tracking-wider font-wordmark">Prawly</div>
         </div>
 
         <nav className="flex-1 px-4 space-y-1">
@@ -403,7 +403,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
 
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-surface/80 backdrop-blur-xl border-b-2 border-zinc-900 flex justify-between items-center px-6 py-4">
-        <div className="text-xl font-black italic text-primary-container uppercase tracking-widest font-display">Prawly</div>
+        <div className="text-2xl text-primary-container tracking-wider font-wordmark">Prawly</div>
         <button onClick={() => setIsMenuOpen(v => !v)} className="text-on-surface-variant">
           {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
         </button>

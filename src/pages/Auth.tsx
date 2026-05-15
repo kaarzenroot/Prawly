@@ -45,9 +45,9 @@ export function Auth({ onNavigate, onSignIn }: AuthProps) {
       <div className="hidden md:flex flex-1 relative items-center justify-center bg-primary-container overflow-hidden">
         <div className="absolute inset-0 bg-[#ffc400]" />
         <div className="relative z-10 p-12 max-w-xl">
-          <div className="font-display text-lg font-black tracking-widest mb-24 flex items-center gap-2">
+          <div className="font-wordmark text-2xl tracking-wider mb-24 flex items-center gap-2">
             <span className="w-8 h-8 rounded-full border-[3px] border-surface flex items-center justify-center"></span>
-            PRAWLY
+            Prawly
           </div>
           <div className="space-y-8">
             <h1 className="font-display text-7xl font-black text-surface tracking-tighter leading-[0.9]">
@@ -85,7 +85,7 @@ export function Auth({ onNavigate, onSignIn }: AuthProps) {
             <ArrowLeft size={16} />
             Home
           </button>
-          <div className="font-display text-xl font-black italic tracking-widest text-primary-container">PRAWLY</div>
+          <div className="font-wordmark text-2xl tracking-wider text-primary-container">Prawly</div>
         </div>
 
         <motion.div 

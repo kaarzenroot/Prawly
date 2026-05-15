@@ -225,7 +225,7 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
       <header className="w-full p-8 z-10 flex justify-start">
         <div 
           onClick={() => onNavigate('home')}
-          className="font-display text-2xl font-black italic tracking-widest text-surface-highest select-none opacity-30 cursor-pointer hover:opacity-100 transition-opacity uppercase"
+          className="font-wordmark text-2xl tracking-wider text-surface-highest select-none opacity-30 cursor-pointer hover:opacity-100 transition-opacity"
         >
           Prawly
         </div>
@@ -315,7 +315,7 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
       </main>
 
       <footer className="w-full py-12 flex flex-col items-center gap-8 bg-zinc-950 border-t border-zinc-900 mt-auto">
-        <div className="font-display text-xl font-black tracking-widest text-primary-container opacity-60">Prawly</div>
+        <div className="font-wordmark text-2xl tracking-wider text-primary-container opacity-60">Prawly</div>
         <div className="flex gap-8">
           {['Privacy', 'Terms', 'API'].map(item => (
             <a key={item} href="#" className="font-display text-[10px] font-bold text-zinc-600 hover:text-primary-container transition-colors uppercase tracking-widest">{item}</a>

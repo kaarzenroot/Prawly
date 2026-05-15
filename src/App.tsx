@@ -90,6 +90,7 @@ export default function App() {
   const [user, setUser] = useState<PrawlyUser | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [starredIds, setStarredIds] = useState<Set<string>>(getLocalStarred);
+  const starredIdsRef = useRef<Set<string>>(starredIds);
   const [currentPage, setCurrentPage] = useState<Page>(() => {
     if (window.location.hash.startsWith("#/scream/")) return "public-scream-box";
     return "home";
@@ -224,6 +225,11 @@ export default function App() {
     localStorage.setItem("prawly_links", JSON.stringify(links));
   }, [links]);
 
+  // ── Keep starredIds ref in sync so Firestore listeners always read the latest ──
+  useEffect(() => {
+    starredIdsRef.current = starredIds;
+  }, [starredIds]);
+
   // ── Real-time Firestore listeners for messages ──
   const linkIdsKey = useMemo(() => links.map(l => l.id).sort().join(','), [links]);
 
@@ -236,14 +242,15 @@ export default function App() {
       onSnapshot(
         collection(db, "links", linkId, "messages"),
         (snapshot) => {
-          const localStarred = starredIds;
+          // Read from ref so we always get the latest starred state
+          // without causing listener re-subscription
+          const currentStarred = starredIdsRef.current;
           const messages = snapshot.docs.map(d => {
             const data = d.data();
             return {
               id: d.id,
               ...data,
-              // Merge: user's starredIds (cross-device) OR localStorage fallback
-              starred: localStarred.has(d.id),
+              starred: currentStarred.has(d.id),
             } as PrawlyMessage;
           });
           setLinks(prev => prev.map(l =>
@@ -257,7 +264,7 @@ export default function App() {
     );
 
     return () => unsubs.forEach(u => u());
-  }, [user, linkIdsKey, starredIds]);
+  }, [user, linkIdsKey]);  // starredIds intentionally excluded — read via ref
 
   // Reset scroll on page change
   useEffect(() => {
@@ -420,7 +427,7 @@ export default function App() {
 
     // Update cross-device starredIds state
     setStarredIds(prev => {
-      const next = new Set(prev);
+      const next = new Set<string>(prev);
       if (newState) next.add(messageId);
       else next.delete(messageId);
       saveLocalStarred(next);

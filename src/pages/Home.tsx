@@ -12,7 +12,7 @@ export function Home({ onNavigate, user }: HomeProps) {
     <div className="relative min-h-screen">
       {/* Navigation */}
       <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl h-16 rounded-xl border-[3px] border-white/10 flex justify-between items-center px-4 md:px-8 z-50 bg-zinc-950/20 backdrop-blur-3xl shadow-[0_0_20px_rgba(255,191,0,0.15)]">
-        <div className="text-xl font-black italic text-white tracking-widest font-display uppercase shrink-0">
+        <div className="text-2xl text-white tracking-wider font-wordmark shrink-0">
           Prawly
         </div>
         <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
@@ -162,7 +162,7 @@ export function Home({ onNavigate, user }: HomeProps) {
       </section>
 
       <footer className="w-full border-t-[3px] border-zinc-900 bg-zinc-950 flex flex-col md:flex-row justify-between items-center px-12 py-12 gap-8">
-        <div className="text-xl font-black text-white font-display italic tracking-widest uppercase">
+        <div className="text-2xl text-white tracking-wider font-wordmark">
           Prawly
         </div>
         <div className="font-display text-xs font-medium uppercase tracking-widest text-zinc-500">
