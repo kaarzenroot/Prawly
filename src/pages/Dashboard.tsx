@@ -57,11 +57,23 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const hiddenExportRef = useRef<HTMLDivElement>(null);
 
   // Response modal state
   const [responseMessage, setResponseMessage] = useState<PrawlyMessage | null>(null);
   const [responseText, setResponseText] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+
+  // Handle native back button to close response modal
+  useEffect(() => {
+    const handlePopState = () => {
+      if (responseMessage) {
+        setResponseMessage(null);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [responseMessage]);
 
   // Close 3-dot menus when clicking outside
   useEffect(() => {
@@ -215,151 +227,186 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
 
   const totalMessages = links.reduce((acc, l) => acc + l.messages.length, 0);
 
-  const renderResponseModal = () => (
-    <AnimatePresence>
-      {responseMessage && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        >
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => !isExporting && setResponseMessage(null)} />
-          
-          <div className="relative z-10 w-full max-w-sm flex flex-col items-center gap-6">
-            
-            {/* THE EXPORTABLE CARD */}
-            <motion.div 
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              ref={cardRef}
-              className="w-full relative overflow-hidden flex flex-col bg-surface-container-lowest border border-outline-variant shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-3xl"
-              style={{ aspectRatio: "2 / 3", maxWidth: "360px" }}
-            >
-              {/* Background Gradient */}
-              <div className="absolute inset-0 bg-gradient-to-b from-surface-container-low/40 to-transparent pointer-events-none" />
+  const renderResponseModal = () => {
+    const handleClose = () => {
+      if (window.location.hash === '#respond') {
+        window.history.back();
+      }
+      setResponseMessage(null);
+    };
 
-              {/* Top Half: The Catalyst (Feedback) */}
-              <div className="flex-1 p-8 flex flex-col justify-center relative">
-                <div className="font-display text-[10px] font-black tracking-[0.2em] text-on-surface-variant/40 uppercase mb-6">
+    const handleExport = async (share: boolean) => {
+      if (!hiddenExportRef.current || isExporting) return;
+      setIsExporting(true);
+      try {
+        const blob = await toBlob(hiddenExportRef.current, {
+          pixelRatio: 1,
+          backgroundColor: '#121212',
+          style: { transform: 'scale(1)', margin: '0' }
+        });
+        
+        if (!blob) throw new Error("Failed to generate image");
+        
+        const file = new File([blob], `prawly-response-${Date.now()}.png`, { type: 'image/png' });
+        
+        if (share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Prawly Response',
+            text: 'Check out my response on Prawly.'
+          });
+        } else {
+          if (share) {
+            alert("Native sharing is not supported on this device. Downloading instead.");
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = file.name;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      } catch (err) {
+        console.error("Export failed:", err);
+        alert("Failed to export image. Please try again.");
+      } finally {
+        setIsExporting(false);
+      }
+    };
+
+    return (
+      <>
+      <AnimatePresence>
+        {responseMessage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => !isExporting && handleClose()} />
+            
+            <div className="relative z-10 w-full max-w-sm flex flex-col items-center gap-5">
+              
+              {/* THE LIVE PREVIEW CARD */}
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="w-full relative overflow-hidden flex flex-col bg-surface-container-lowest border border-outline-variant shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-3xl"
+                style={{ aspectRatio: "2 / 3", maxWidth: "360px" }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-b from-surface-container-low/40 to-transparent pointer-events-none" />
+
+                {/* Top Half: The Catalyst (Feedback) */}
+                <div className="flex-1 p-8 flex flex-col justify-center relative">
+                  <div className="font-display text-[10px] font-black tracking-[0.2em] text-on-surface-variant/40 uppercase mb-6">
+                    [ The Callout ]
+                  </div>
+                  <Quote size={36} className="text-primary-container/10 absolute top-8 right-8" />
+                  <p className="text-on-surface/90 text-2xl font-light leading-relaxed font-sans z-10">
+                    {responseMessage.aiSummary || responseMessage.text}
+                  </p>
+                </div>
+
+                <div className="w-full h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent relative my-2" />
+
+                {/* Bottom Half: WYSIWYG Inline Editor */}
+                <div 
+                  className="flex-1 p-8 flex flex-col relative bg-surface-container-highest/10 cursor-text"
+                  onClick={() => document.getElementById('inline-editor')?.focus()}
+                >
+                  <div className="font-display text-[10px] font-black tracking-[0.2em] text-primary-container/70 uppercase mb-6">
+                    [ My Take ]
+                  </div>
+                  <div className="flex-1 flex flex-col justify-start">
+                    <textarea
+                      id="inline-editor"
+                      value={responseText}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setResponseText(e.target.value)}
+                      placeholder="[ Tap here to write your take... ]"
+                      className="w-full h-full bg-transparent resize-none outline-none text-primary-container/90 placeholder:text-on-surface-variant/30 placeholder:italic text-lg leading-relaxed font-sans font-medium"
+                      disabled={isExporting}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* OUTSIDE THE CARD: Action Buttons Only */}
+              <div className="w-full max-w-sm">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleClose()}
+                    disabled={isExporting}
+                    className="p-4 rounded-xl bg-surface-container-high border border-outline-variant text-on-surface hover:bg-surface-container-highest transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    <X size={20} />
+                  </button>
+                  <button
+                    onClick={() => handleExport(false)}
+                    disabled={isExporting}
+                    className="flex-1 flex items-center justify-center gap-2 p-3 rounded-xl bg-surface-container-high border border-outline-variant text-on-surface font-display text-xs font-black tracking-widest uppercase hover:bg-surface-container-highest transition-all disabled:opacity-70"
+                  >
+                    <Download size={16} /> Save
+                  </button>
+                  <button
+                    onClick={() => handleExport(true)}
+                    disabled={isExporting}
+                    className="flex-1 flex items-center justify-center gap-2 p-3 rounded-xl bg-primary-container text-surface font-display text-xs font-black tracking-widest uppercase hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_20px_rgba(255,191,0,0.3)] disabled:opacity-70 disabled:hover:scale-100"
+                  >
+                    {isExporting ? (
+                      <div className="w-4 h-4 border-2 border-surface/40 border-t-surface rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Share2 size={16} /> Share
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* HIDDEN 9:16 EXPORT CANVAS */}
+      {responseMessage && (
+        <div style={{ position: 'fixed', top: '-9999px', left: '-9999px', pointerEvents: 'none', opacity: 0, zIndex: -1 }}>
+          <div 
+            ref={hiddenExportRef} 
+            style={{ width: '1080px', height: '1920px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px', background: 'linear-gradient(135deg, #121212 0%, #0a0a0a 100%)' }}
+          >
+            <div 
+              style={{ width: '860px', height: '1290px', borderRadius: '48px', overflow: 'hidden', display: 'flex', flexDirection: 'column', border: '2px solid rgba(255,255,255,0.08)', boxShadow: '0 40px 100px rgba(0,0,0,0.5)' }}
+              className="bg-surface-container-lowest"
+            >
+              <div className="absolute inset-0 bg-gradient-to-b from-surface-container-low/40 to-transparent pointer-events-none" style={{position:'absolute',inset:0}} />
+              <div style={{ flex: 1, padding: '48px', display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 900, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '32px' }} className="text-on-surface-variant/40">
                   [ The Callout ]
                 </div>
-                <Quote size={36} className="text-primary-container/10 absolute top-8 right-8" />
-                <p className="text-on-surface/90 text-2xl font-light leading-relaxed font-sans z-10">
+                <p style={{ fontSize: '40px', fontWeight: 300, lineHeight: 1.5 }} className="text-on-surface/90 font-sans">
                   {responseMessage.aiSummary || responseMessage.text}
                 </p>
               </div>
-
-              {/* Subtle Divider */}
-              <div className="w-full h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent relative my-2" />
-
-              {/* Bottom Half: The Play (Response) */}
-              <div className="flex-1 p-8 flex flex-col relative bg-surface-container-highest/10">
-                <div className="font-display text-[10px] font-black tracking-[0.2em] text-primary-container/70 uppercase mb-6">
+              <div style={{ width: '100%', height: '1px', background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent)', margin: '16px 0' }} />
+              <div style={{ flex: 1, padding: '48px', display: 'flex', flexDirection: 'column', position: 'relative' }} className="bg-surface-container-highest/10">
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 900, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '32px' }} className="text-primary-container/70">
                   [ My Take ]
                 </div>
-                <div className="flex-1 flex flex-col justify-start">
-                  {responseText ? (
-                    <p className="text-primary-container/90 text-lg leading-relaxed font-sans break-words whitespace-pre-wrap font-medium">
-                      {responseText}
-                    </p>
-                  ) : (
-                    <p className="text-on-surface-variant/30 text-lg leading-relaxed font-sans italic font-medium">
-                      No response provided.
-                    </p>
-                  )}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                  <p style={{ fontSize: '32px', fontWeight: 500, lineHeight: 1.5, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }} className={responseText ? 'text-primary-container/90 font-sans' : 'text-on-surface-variant/30 font-sans italic'}>
+                    {responseText || "No response provided."}
+                  </p>
                 </div>
-              </div>
-
-              
-            </motion.div>
-
-            {/* OUTSIDE THE CARD: Controls */}
-            <div className="w-full max-w-sm space-y-4">
-              <textarea
-                value={responseText}
-                onChange={(e) => setResponseText(e.target.value)}
-                placeholder="Type your response here..."
-                className="w-full bg-surface-container-low border-2 border-outline-variant hover:border-outline focus:border-primary-container p-4 rounded-xl outline-none transition-all text-on-surface placeholder:text-on-surface-variant/30 font-sans resize-none shadow-xl"
-                rows={3}
-                disabled={isExporting}
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={async () => {
-                    if (!cardRef.current || isExporting) return;
-                    setIsExporting(true);
-                    try {
-                      const blob = await toBlob(cardRef.current, {
-                        pixelRatio: 3,
-                        backgroundColor: 'transparent',
-                        style: { transform: 'scale(1)', margin: '0' }
-                      });
-                      if (!blob) throw new Error("Failed to generate image");
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `prawly-response-${Date.now()}.png`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    } catch (err) {
-                      console.error("Export failed:", err);
-                      alert("Failed to export image. Please try again.");
-                    } finally {
-                      setIsExporting(false);
-                    }
-                  }}
-                  disabled={isExporting}
-                  className="flex-1 flex items-center justify-center gap-2 p-4 rounded-xl bg-surface-container-high border border-outline-variant text-on-surface font-display text-[10px] font-black tracking-widest uppercase hover:bg-surface-container-highest transition-all disabled:opacity-70"
-                >
-                  <Download size={16} /> Save
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!cardRef.current || isExporting) return;
-                    setIsExporting(true);
-                    try {
-                      const blob = await toBlob(cardRef.current, {
-                        pixelRatio: 3,
-                        backgroundColor: 'transparent',
-                        style: { transform: 'scale(1)', margin: '0' }
-                      });
-                      if (!blob) throw new Error("Failed to generate image");
-                      const file = new File([blob], `prawly-response-${Date.now()}.png`, { type: 'image/png' });
-                      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                        await navigator.share({
-                          files: [file],
-                          title: 'Prawly Response',
-                          text: 'Check out my response on Prawly.'
-                        });
-                      } else {
-                        alert("Native sharing is not supported on this device. Use the Save button instead.");
-                      }
-                    } catch (err) {
-                      console.error("Export failed:", err);
-                    } finally {
-                      setIsExporting(false);
-                    }
-                  }}
-                  disabled={isExporting}
-                  className="flex-1 flex items-center justify-center gap-2 p-4 rounded-xl bg-primary-container text-surface font-display text-[10px] font-black tracking-widest uppercase hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_20px_rgba(255,191,0,0.3)] disabled:opacity-70 disabled:hover:scale-100"
-                >
-                  {isExporting ? (
-                    <div className="w-4 h-4 border-2 border-surface/40 border-t-surface rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Share2 size={16} /> Share
-                    </>
-                  )}
-                </button>
               </div>
             </div>
           </div>
-        </motion.div>
+        </div>
       )}
-    </AnimatePresence>
-  );
+      </>
+    );
+  };
 
   // Selected link detail view
   if (selectedLink) {
@@ -461,7 +508,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                         <p className="text-on-surface text-lg leading-relaxed">{msg.aiSummary || msg.text}</p>
                         <div className="flex items-center gap-2 shrink-0">
                           <button 
-                            onClick={(e) => { e.stopPropagation(); setResponseMessage(msg); setResponseText(""); }} 
+                            onClick={(e) => { e.stopPropagation(); setResponseMessage(msg); setResponseText(""); window.history.pushState({ modal: "respond" }, "", "#respond"); }} 
                             className="p-2 text-primary-container hover:bg-primary-container/10 rounded-lg transition-colors flex items-center gap-2 font-display text-xs font-bold uppercase tracking-widest"
                           >
                             <Share2 size={16} /> <span className="hidden sm:inline">Respond</span>
