@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCode from "qrcode";
+import { toBlob } from "html-to-image";
 import {
   BarChart3, Inbox, Palette, Plus, Link as LinkIcon,
   X, ArrowRight, Quote, Menu,
   Copy, Check, MessageCircle, Clock, ChevronLeft, Zap,
-  Share2, MoreVertical, Edit2, Trash2, Star,
+  Share2, MoreVertical, Edit2, Trash2, Send,
   Settings, Camera, QrCode
 } from "lucide-react";
-import type { PrawlyLink, PrawlyUser } from "../App";
+import type { PrawlyLink, PrawlyUser, PrawlyMessage } from "../App";
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
@@ -18,7 +19,6 @@ interface DashboardProps {
   onEditLink: (linkId: string, name: string, question: string) => void;
   onDeleteLink: (linkId: string) => void;
   onDeleteMessage: (linkId: string, messageId: string) => void;
-  onToggleStarMessage: (linkId: string, messageId: string) => void;
   onUpdateProfile: (username: string, photoURL: string | null) => void;
   onSignOut: () => void;
 }
@@ -38,7 +38,7 @@ function getLinkUrl(linkId: string): string {
   return `${window.location.origin}${window.location.pathname}#/scream/${linkId}`;
 }
 
-export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, onDeleteLink, onDeleteMessage, onToggleStarMessage, onUpdateProfile, onSignOut }: DashboardProps) {
+export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, onDeleteLink, onDeleteMessage, onUpdateProfile, onSignOut }: DashboardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showCreationSuccess, setShowCreationSuccess] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -56,6 +56,12 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
   const [qrLinkId, setQrLinkId] = useState<string | null>(null);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Response modal state
+  const [responseMessage, setResponseMessage] = useState<PrawlyMessage | null>(null);
+  const [responseText, setResponseText] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   // Close 3-dot menus when clicking outside
   useEffect(() => {
@@ -297,11 +303,10 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                 {fullLink.messages.map((msg, i) => (
                   <motion.div
                     key={msg.id}
-                    onDoubleClick={() => onToggleStarMessage(fullLink.id, msg.id)}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.05 }}
-                    className="relative p-6 rounded-2xl bg-surface-container-low border border-outline-variant/50 group hover:border-primary-container/30 transition-all overflow-hidden select-none"
+                    className="relative p-6 rounded-2xl bg-surface-container-low border border-outline-variant/50 group hover:border-primary-container/30 transition-all overflow-hidden"
                   >
                     <Quote size={16} className="text-primary-container/30 absolute top-4 right-4 pointer-events-none" />
 
@@ -310,10 +315,10 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                         <p className="text-on-surface text-lg leading-relaxed">{msg.aiSummary || msg.text}</p>
                         <div className="flex items-center gap-2 shrink-0">
                           <button 
-                            onClick={(e) => { e.stopPropagation(); onToggleStarMessage(fullLink.id, msg.id); }} 
-                            className={`p-2 rounded-lg transition-colors ${msg.starred ? 'text-yellow-400 hover:bg-yellow-400/10' : 'text-on-surface-variant/40 hover:text-yellow-400 hover:bg-yellow-400/10'}`}
+                            onClick={(e) => { e.stopPropagation(); setResponseMessage(msg); setResponseText(""); }} 
+                            className="p-2 text-primary-container hover:bg-primary-container/10 rounded-lg transition-colors flex items-center gap-2 font-display text-xs font-bold uppercase tracking-widest"
                           >
-                            <Star size={18} fill={msg.starred ? "currentColor" : "none"} />
+                            <Share2 size={16} /> <span className="hidden sm:inline">Respond</span>
                           </button>
                           <button 
                             onClick={(e) => { e.stopPropagation(); onDeleteMessage(fullLink.id, msg.id); }} 
@@ -336,8 +341,7 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                 {/* 30-day notice and disclaimer */}
                 <div className="text-center pt-8 pb-4 space-y-6">
                   <p className="text-xs text-on-surface-variant/50 font-display">
-                    Unstarred messages are automatically deleted after 30 days.<br />
-                    Double tap or click the star icon to keep them.
+                    Messages are automatically deleted after 30 days.
                   </p>
                   <div className="max-w-md mx-auto p-4 rounded-xl bg-surface-container-high/50 border border-outline-variant/30 text-[10px] text-on-surface-variant/60 font-sans leading-relaxed text-left">
                     <strong className="text-on-surface-variant/80 block mb-1">Disclaimer</strong>
@@ -893,6 +897,145 @@ export function Dashboard({ onNavigate, user, links, onCreateLink, onEditLink, o
                 Save Profile
               </button>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Response/Accountability Card Modal */}
+      <AnimatePresence>
+        {responseMessage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => !isExporting && setResponseMessage(null)} />
+            
+            <div className="relative z-10 w-full max-w-sm flex flex-col items-center gap-6">
+              
+              {/* THE EXPORTABLE CARD */}
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                ref={cardRef}
+                className="w-full relative overflow-hidden flex flex-col bg-surface-container-lowest border border-outline-variant shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+                style={{ aspectRatio: "2 / 3", maxWidth: "360px" }}
+              >
+                {/* Top Half: The Catalyst (Feedback) */}
+                <div className="flex-1 p-8 flex flex-col justify-center relative bg-surface-container-low/50">
+                  <div className="absolute top-6 left-6 font-display text-[10px] font-black tracking-[0.2em] text-on-surface-variant/50 uppercase">
+                    [ The Callout ]
+                  </div>
+                  <Quote size={24} className="text-primary-container/20 absolute top-6 right-6" />
+                  <p className="text-on-surface text-xl leading-relaxed font-sans mt-4">
+                    {responseMessage.aiSummary || responseMessage.text}
+                  </p>
+                </div>
+
+                {/* Divider */}
+                <div className="w-full h-px bg-outline-variant/30 relative">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface-container-lowest border border-outline-variant/50 flex items-center justify-center">
+                    <Zap size={14} className="text-primary-container" />
+                  </div>
+                </div>
+
+                {/* Bottom Half: The Play (Response) */}
+                <div className="flex-1 p-8 flex flex-col relative bg-surface-container-highest/20">
+                  <div className="absolute top-6 left-6 font-display text-[10px] font-black tracking-[0.2em] text-primary-container uppercase">
+                    [ The Play ]
+                  </div>
+                  <div className="mt-8 flex-1 flex flex-col justify-center">
+                    {responseText ? (
+                      <p className="text-primary-container/90 text-lg leading-relaxed font-sans break-words whitespace-pre-wrap">
+                        {responseText}
+                      </p>
+                    ) : (
+                      <p className="text-on-surface-variant/30 text-lg leading-relaxed font-sans italic">
+                        No response provided.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Footer Watermark */}
+                <div className="absolute bottom-4 w-full text-center">
+                  <span className="font-display text-[8px] font-bold tracking-[0.3em] text-on-surface-variant/30 uppercase">
+                    Kozmine Integrity Engine // Prawly V1
+                  </span>
+                </div>
+              </motion.div>
+
+              {/* OUTSIDE THE CARD: Controls */}
+              <div className="w-full max-w-sm space-y-4">
+                <textarea
+                  value={responseText}
+                  onChange={(e) => setResponseText(e.target.value)}
+                  placeholder="Type your response here..."
+                  className="w-full bg-surface-container-low border-2 border-outline-variant hover:border-outline focus:border-primary-container p-4 rounded-xl outline-none transition-all text-on-surface placeholder:text-on-surface-variant/30 font-sans resize-none shadow-xl"
+                  rows={3}
+                  disabled={isExporting}
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setResponseMessage(null)}
+                    disabled={isExporting}
+                    className="p-4 rounded-xl bg-surface-container-high border border-outline-variant text-on-surface hover:bg-surface-container-highest transition-colors disabled:opacity-50"
+                  >
+                    <X size={20} />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!cardRef.current || isExporting) return;
+                      setIsExporting(true);
+                      try {
+                        const blob = await toBlob(cardRef.current, {
+                          pixelRatio: 3,
+                          backgroundColor: '#181309', // Ensure dark background is solid
+                          style: { transform: 'scale(1)', margin: '0' } // Prevent scaling issues
+                        });
+                        
+                        if (!blob) throw new Error("Failed to generate image");
+                        
+                        const file = new File([blob], `prawly-response-${Date.now()}.png`, { type: 'image/png' });
+                        
+                        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                          await navigator.share({
+                            files: [file],
+                            title: 'Prawly Response',
+                            text: 'Check out my response on Prawly.'
+                          });
+                        } else {
+                          // Fallback to download
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = file.name;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }
+                      } catch (err) {
+                        console.error("Export failed:", err);
+                        alert("Failed to export image. Please try again.");
+                      } finally {
+                        setIsExporting(false);
+                      }
+                    }}
+                    disabled={isExporting}
+                    className="flex-1 flex items-center justify-center gap-2 p-4 rounded-xl bg-primary-container text-surface font-display text-sm font-black tracking-widest uppercase hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_20px_rgba(255,191,0,0.3)] disabled:opacity-70 disabled:hover:scale-100"
+                  >
+                    {isExporting ? (
+                      <div className="w-5 h-5 border-2 border-surface/40 border-t-surface rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Send size={18} /> Export & Share
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -131,7 +131,6 @@ export function PublicScreamBox({ onNavigate, linkId, links, onSubmitMessage }: 
         timestamp: Date.now(),
         aiSummary,
         sentiment,
-        starred: false,
       });
     } catch (err) {
       console.error("Error submitting message:", err);

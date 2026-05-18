@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Home } from "./pages/Home";
 import { Auth } from "./pages/Auth";
 import { SignUp } from "./pages/SignUp";
@@ -7,7 +7,7 @@ import { PublicScreamBox } from "./pages/PublicScreamBox";
 import { AnimatePresence, motion } from "motion/react";
 import { firebaseSignUp, firebaseSignIn, firebaseSignOut, onAuthStateChanged, auth, db } from "./lib/firebase";
 import { updateProfile } from "firebase/auth";
-import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 
 type Page = "home" | "auth" | "signup" | "dashboard" | "public-scream-box";
 
@@ -25,9 +25,8 @@ export interface PrawlyMessage {
   id: string;
   text: string;
   timestamp: number;
-  aiSummary?: string;      // AI-interpreted version (placeholder)
+  aiSummary?: string;      // AI-interpreted version
   sentiment?: string;       // e.g. "positive", "constructive", "neutral"
-  starred?: boolean;
 }
 
 export interface PrawlyUser {
@@ -49,16 +48,7 @@ function generateCustomLinkId(username: string, title: string): string {
   return `${cleanUser}-${cleanTitle}-${hash}`;
 }
 
-// ── LocalStorage-backed star persistence (Firestore fallback) ──
-function getLocalStarred(): Set<string> {
-  try {
-    const saved = localStorage.getItem('prawly_starred_messages');
-    return new Set(saved ? JSON.parse(saved) : []);
-  } catch { return new Set(); }
-}
-function saveLocalStarred(ids: Set<string>) {
-  localStorage.setItem('prawly_starred_messages', JSON.stringify([...ids]));
-}
+
 
 // ── AI Interpretation — calls our server-side /api/prawlly endpoint ──
 // The Gemini API key is NEVER present in the frontend bundle.
@@ -89,8 +79,7 @@ async function aiInterpret(rawText: string): Promise<{ aiSummary: string; sentim
 export default function App() {
   const [user, setUser] = useState<PrawlyUser | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
-  const [starredIds, setStarredIds] = useState<Set<string>>(getLocalStarred);
-  const starredIdsRef = useRef<Set<string>>(starredIds);
+
   const [currentPage, setCurrentPage] = useState<Page>(() => {
     if (window.location.hash.startsWith("#/scream/")) return "public-scream-box";
     return "home";
@@ -107,7 +96,7 @@ export default function App() {
         } catch (e) {
           console.error("Error fetching firestore user", e);
         }
-        
+
         const localPhoto = localStorage.getItem(`prawly_photo_${firebaseUser.uid}`);
 
         setUser({
@@ -116,30 +105,20 @@ export default function App() {
           photoURL: userData?.photoURL || firebaseUser.photoURL || localPhoto || null,
         });
 
-        // Load starred message IDs from user profile (cross-device)
-        const firestoreStarred: string[] = userData?.starredMessageIds || [];
-        const merged = new Set<string>([...getLocalStarred(), ...firestoreStarred]);
-        setStarredIds(merged);
-        saveLocalStarred(merged);
-        // If Firestore is missing local stars, sync them up
-        if (merged.size > firestoreStarred.length) {
-          setDoc(doc(db, "users", firebaseUser.uid), {
-            starredMessageIds: [...merged]
-          }, { merge: true }).catch(() => {});
-        }
+
 
         // Fetch user's links from Firestore
         try {
           const q = query(collection(db, "links"), where("creatorId", "==", firebaseUser.uid));
           const querySnapshot = await getDocs(q);
           const fetchedLinks: PrawlyLink[] = [];
-          
+
           for (const linkDoc of querySnapshot.docs) {
             const data = linkDoc.data();
             const msgQ = query(collection(db, "links", linkDoc.id, "messages"));
             const msgSnapshot = await getDocs(msgQ);
             const messages = msgSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as PrawlyMessage));
-            
+
             fetchedLinks.push({
               id: linkDoc.id,
               name: data.name,
@@ -178,7 +157,7 @@ export default function App() {
         const now = Date.now();
         return parsed.map(link => ({
           ...link,
-          messages: link.messages.filter(m => m.starred || (now - m.timestamp < THIRTY_DAYS))
+          messages: link.messages.filter(m => now - m.timestamp < THIRTY_DAYS)
         }));
       } catch { return []; }
     }
@@ -225,10 +204,6 @@ export default function App() {
     localStorage.setItem("prawly_links", JSON.stringify(links));
   }, [links]);
 
-  // ── Keep starredIds ref in sync so Firestore listeners always read the latest ──
-  useEffect(() => {
-    starredIdsRef.current = starredIds;
-  }, [starredIds]);
 
   // ── Real-time Firestore listeners for messages ──
   const linkIdsKey = useMemo(() => links.map(l => l.id).sort().join(','), [links]);
@@ -242,15 +217,11 @@ export default function App() {
       onSnapshot(
         collection(db, "links", linkId, "messages"),
         (snapshot) => {
-          // Read from ref so we always get the latest starred state
-          // without causing listener re-subscription
-          const currentStarred = starredIdsRef.current;
           const messages = snapshot.docs.map(d => {
             const data = d.data();
             return {
               id: d.id,
               ...data,
-              starred: currentStarred.has(d.id),
             } as PrawlyMessage;
           });
           setLinks(prev => prev.map(l =>
@@ -264,7 +235,7 @@ export default function App() {
     );
 
     return () => unsubs.forEach(u => u());
-  }, [user, linkIdsKey]);  // starredIds intentionally excluded — read via ref
+  }, [user, linkIdsKey]);
 
   // Reset scroll on page change
   useEffect(() => {
@@ -304,7 +275,7 @@ export default function App() {
       } catch (e) {
         console.error("Error updating firebase auth profile", e);
       }
-      
+
       try {
         await setDoc(doc(db, "users", auth.currentUser.uid), {
           username: newUsername,
@@ -378,8 +349,7 @@ export default function App() {
       text,
       timestamp: newMessage.timestamp,
       aiSummary,
-      sentiment,
-      starred: false
+      sentiment
     }).catch(e => console.error("Error saving message to Firestore", e));
   }, []);
 
@@ -411,36 +381,6 @@ export default function App() {
       .catch(e => console.error("Error deleting message from Firestore", e));
   }, []);
 
-  const handleToggleStarMessage = useCallback((linkId: string, messageId: string) => {
-    let newState = false;
-    setLinks(prev => prev.map(l =>
-      l.id === linkId
-        ? { ...l, messages: l.messages.map(m => {
-            if (m.id === messageId) {
-              newState = !m.starred;
-              return { ...m, starred: newState };
-            }
-            return m;
-          })}
-        : l
-    ));
-
-    // Update cross-device starredIds state
-    setStarredIds(prev => {
-      const next = new Set<string>(prev);
-      if (newState) next.add(messageId);
-      else next.delete(messageId);
-      saveLocalStarred(next);
-      return next;
-    });
-
-    // Persist to user's Firestore profile (syncs across all devices)
-    if (auth.currentUser) {
-      updateDoc(doc(db, "users", auth.currentUser.uid), {
-        starredMessageIds: newState ? arrayUnion(messageId) : arrayRemove(messageId)
-      }).catch(e => console.error("Error updating starred in Firestore", e));
-    }
-  }, []);
 
   const navigate = useCallback((page: string) => {
     if (page !== "public-scream-box") {
@@ -475,7 +415,7 @@ export default function App() {
             onEditLink={handleEditLink}
             onDeleteLink={handleDeleteLink}
             onDeleteMessage={handleDeleteMessage}
-            onToggleStarMessage={handleToggleStarMessage}
+
             onUpdateProfile={handleUpdateProfile}
             onSignOut={handleSignOut}
           />
